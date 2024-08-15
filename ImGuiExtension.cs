@@ -43,7 +43,7 @@ public class ImGuiExtension
     public static unsafe DisposableImGui Child([CallerLineNumber] int cln = 0, Vector2 size = default,
         ImGuiChildFlags childFlags = ImGuiChildFlags.None, ImGuiWindowFlags flags = ImGuiWindowFlags.None)
     {
-        BeginChild(cln, size, childFlags, flags);
+        BeginChild((uint) cln, size, childFlags, flags);
         return new DisposableImGui(true, DisposableTypes.Child);
     }
     public static DisposableImGui MenuBar(out bool open) => new DisposableImGui(open = BeginMenuBar(), DisposableTypes.MenuBar);
