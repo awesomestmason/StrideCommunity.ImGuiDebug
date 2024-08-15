@@ -7,12 +7,15 @@ using Stride.Core;
 using Stride.Engine;
 
 using Hexa.NET.ImGui;
+using Stride.Games;
 using static Hexa.NET.ImGui.ImGui;
 using static StrideCommunity.ImGuiDebug.ImGuiExtension;
 
 namespace StrideCommunity.ImGuiDebug;
-public class HierarchyView : BaseWindow
+public class HierarchyView : ImGuiComponentBase
 {
+    private readonly Scene _rootScene;
+
     /// <summary>
     /// Based on hashcodes, it doesn't have to be exact, we just don't want to keep references from being collected
     /// </summary>
@@ -23,18 +26,18 @@ public class HierarchyView : BaseWindow
     const float DUMMY_WIDTH = 19;
     const float INDENTATION2 = DUMMY_WIDTH + 8;
 
-    public HierarchyView(IServiceRegistry service) : base(service) { }
-
-    protected override void OnDraw(bool collapsed)
+    public HierarchyView(Scene rootScene)
     {
-        if (collapsed)
-            return;
+        _rootScene = rootScene;
+    }
 
+    public override void Draw(ImGuiSystem imGui, GameTime time)
+    {
         if (InputText("Search", ref _searchTerm, 64))
         {
             _searchResult.Clear();
             if (string.IsNullOrWhiteSpace(_searchTerm) == false)
-                RecursiveSearch(_searchResult, _searchTerm.ToLower(), Game.SceneSystem.SceneInstance.RootScene);
+                RecursiveSearch(_searchResult, _searchTerm.ToLower(), _rootScene);
         }
 
         using (Child())
@@ -50,7 +53,7 @@ public class HierarchyView : BaseWindow
                 Spacing();
             }
 
-            foreach (var child in EnumerateChildren(Game.SceneSystem.SceneInstance.RootScene))
+            foreach (var child in EnumerateChildren(_rootScene))
                 RecursiveDrawing(child);
         }
     }
@@ -76,8 +79,6 @@ public class HierarchyView : BaseWindow
         if (term.Contains(strLwr) || strLwr.Contains(term))
             result.Add(source);
     }
-
-    protected override void OnDestroy() { }
 
     void RecursiveDrawing(IIdentifiable source)
     {
@@ -119,7 +120,7 @@ public class HierarchyView : BaseWindow
             SameLine();
 
             if (Button(label))
-                Inspector.FindFreeInspector(Services).Target = source;
+                Inspector.GetOrCreateInspectorWindow(ImGuiScene).Target = source;
 
             using (UIndent(INDENTATION2))
             {

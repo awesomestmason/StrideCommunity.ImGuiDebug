@@ -8,14 +8,14 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Numerics;
-
+using Stride.Games;
 using ImGuiDir = Hexa.NET.ImGui.ImGuiDir;
 using static Hexa.NET.ImGui.ImGui;
 using static StrideCommunity.ImGuiDebug.ImGuiExtension;
 using StrideCommunity.ImGuiDebug;
 
 namespace StrideCommunity.ImGuiDebug;
-public class Inspector : BaseWindow
+public class Inspector : ImGuiComponentBase
 {
     /// <summary> Array of all possible <see cref="Filter"/> values </summary>
     static readonly Filter[] FILTER_VALUES = (Filter[])Enum.GetValues(typeof(Filter));
@@ -27,10 +27,6 @@ public class Inspector : BaseWindow
     /// <summary> Add your drawing functions to explicitly override drawing for objects of the given type </summary>
     public static ConcurrentDictionary<Type, ValueHandler> ValueDrawingHandlers = new ConcurrentDictionary<Type, ValueHandler>();
 
-    /// <summary> Any live inspectors </summary>
-    static List<Inspector> _inspectors = new List<Inspector>();
-
-
     Dictionary<Type, TypeCache> _cachedTypeData = new Dictionary<Type, TypeCache>();
     /// <summary> Opened sub object of the inspected object in the tree view </summary>
     HashSet<int> _openedId = new HashSet<int>();
@@ -39,7 +35,7 @@ public class Inspector : BaseWindow
 
 
     // Settings
-    /// <summary> Is this interface returned by <see cref="FindFreeInspector"/> </summary>
+    /// <summary> Is this interface returned by <see cref="GetOrCreateInspectorWindow"/> </summary>
     public bool Locked = false;
     /// <summary> Show specialized interface to handle IEnumerable types </summary>
     public bool EnumerableView = true;
@@ -84,36 +80,22 @@ public class Inspector : BaseWindow
     // Cache to handle dictionary add() commands
     WeakReference<object> _dicAddCommandTarget = new WeakReference<object>(null);
     (object key, object value) _dicAddCommandData;
-
-    public Inspector(IServiceRegistry services) : base(services)
+    
+    public static Inspector GetOrCreateInspectorWindow(ImGuiScene scene)
     {
-        _inspectors.Add(this);
+        var available = scene.GetByType<ImGuiWindow>().Select(window => window.Content)
+            .Where(content => content is Inspector).Cast<Inspector>().FirstOrDefault();
+
+        if (available != null)
+            return available;
+        var inspector = new Inspector();
+        var window = new ImGuiWindow(inspector);
+        scene.Add(window);
+        return inspector;
     }
 
-    public static Inspector FindFreeInspector(IServiceRegistry services)
+    public override void Draw(ImGuiSystem imGui, GameTime gameTime)
     {
-        foreach (Inspector inspector in _inspectors)
-        {
-            if (!inspector.Locked)
-                return inspector;
-        }
-
-        return new Inspector(services);
-    }
-
-    protected override void OnDestroy()
-    {
-        _inspectors.Remove(this);
-    }
-
-
-
-
-    protected override void OnDraw(bool collapsed)
-    {
-        if (collapsed)
-            return;
-
         Checkbox("Locked", ref Locked);
         using (UCombo("Filter", MemberFilter.ToString(), out bool open))
         {
