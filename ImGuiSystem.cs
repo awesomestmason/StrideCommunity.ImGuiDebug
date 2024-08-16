@@ -196,16 +196,7 @@ public class ImGuiSystem : GameSystemBase
         var pipelineState = PipelineState.New(device, ref pipeline);
         imPipeline = pipelineState;
 
-        var is32Bits = false;
-        var indexBuffer = Buffer.Index.New(device, INITIAL_INDEX_BUFFER_SIZE * sizeof(ushort),
-            GraphicsResourceUsage.Dynamic);
-        var indexBufferBinding = new IndexBufferBinding(indexBuffer, is32Bits, 0);
-        indexBinding = indexBufferBinding;
-
-        var vertexBuffer = Buffer.Vertex.New(device, INITIAL_VERTEX_BUFFER_SIZE * imVertLayout.CalculateSize(),
-            GraphicsResourceUsage.Dynamic);
-        var vertexBufferBinding = new VertexBufferBinding(vertexBuffer, layout, 0);
-        vertexBinding = vertexBufferBinding;
+        CreateBuffers(INITIAL_VERTEX_BUFFER_SIZE, INITIAL_INDEX_BUFFER_SIZE);
     }
 
     private unsafe void CreateFontTexture()
@@ -280,17 +271,17 @@ public class ImGuiSystem : GameSystemBase
         RenderDrawLists(ImGui.GetDrawData());
     }
 
-    private void CheckBuffers(ImDrawDataPtr drawData)
+    private void CreateBuffers(int vtxCount, int idxCount)
     {
-        var totalVBOSize = (uint)(drawData.TotalVtxCount * Unsafe.SizeOf<ImDrawVert>());
-        if (totalVBOSize > vertexBinding.Buffer.SizeInBytes)
+        var totalVBOSize = (uint)(vtxCount * Unsafe.SizeOf<ImDrawVert>());
+        if (totalVBOSize > (vertexBinding.Buffer?.SizeInBytes ?? 0))
         {
             var vertexBuffer = Buffer.Vertex.New(device, (int)(totalVBOSize * 1.5f));
             vertexBinding = new VertexBufferBinding(vertexBuffer, imVertLayout, 0);
         }
 
-        var totalIBOSize = (uint)(drawData.TotalIdxCount * sizeof(ushort));
-        if (totalIBOSize > indexBinding.Buffer.SizeInBytes)
+        var totalIBOSize = (uint)(idxCount * sizeof(ushort));
+        if (totalIBOSize > (indexBinding?.Buffer?.SizeInBytes ?? 0))
         {
             var is32Bits = false;
             var indexBuffer = Buffer.Index.New(device, (int)(totalIBOSize * 1.5f));
@@ -298,7 +289,7 @@ public class ImGuiSystem : GameSystemBase
         }
     }
 
-    private unsafe void UpdateBuffers(ImDrawDataPtr drawData)
+    private unsafe void WriteToBuffers(ImDrawDataPtr drawData)
     {
         // copy de dators
         var vtxOffsetBytes = 0;
@@ -323,8 +314,8 @@ public class ImGuiSystem : GameSystemBase
         var surfaceSize = Game.Window.ClientBounds;
         var projMatrix = Matrix.OrthoRH(surfaceSize.Width, -surfaceSize.Height, -1, 1);
 
-        CheckBuffers(drawData); // potentially resize buffers first if needed
-        UpdateBuffers(drawData); // updeet em now
+        CreateBuffers(drawData.TotalVtxCount, drawData.TotalIdxCount); // potentially resize buffers first if needed
+        WriteToBuffers(drawData); // updeet em now
 
         // set pipeline stuff
         var is32Bits = false;
