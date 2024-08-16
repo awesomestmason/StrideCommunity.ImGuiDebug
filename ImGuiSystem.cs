@@ -8,7 +8,6 @@ using Stride.Core.Mathematics;
 using Stride.Games;
 using Stride.Graphics;
 using Stride.Input;
-using Stride.Profiling;
 using Stride.Rendering;
 using Buffer = Stride.Graphics.Buffer;
 
@@ -23,47 +22,45 @@ public class ImGuiSystem : GameSystemBase
 
     [FixedAddressValueType] private static GetClipboardDelegate getClipboardFn;
 
-    private readonly Dictionary<Keys, ImGuiKey> _keys = [];
-
-    private readonly GraphicsContext context;
-    private readonly DebugTextSystem debug;
-    private readonly GraphicsDevice device;
-    private readonly GraphicsDeviceManager deviceManager;
-    private readonly EffectSystem effectSystem;
-    public readonly ImGuiContextPtr ImGuiContext;
+    private readonly GraphicsContext _context;
+    private readonly GraphicsDevice _device;
+    private readonly EffectSystem _effectSystem;
 
     // dependencies
-    private readonly InputManager input;
+    private readonly InputManager _input;
+
+    private readonly Dictionary<Keys, ImGuiKey> _keys = [];
+    public readonly ImGuiContextPtr ImGuiContext;
+    private CommandList _commandList;
+    private Texture _fontTexture;
+
+    // device objects
+    private PipelineState _imPipeline;
+    private EffectInstance _imShader;
+    private VertexDeclaration _imVertLayout;
+    private IndexBufferBinding _indexBinding;
 
     private ImGuiIOPtr _io;
     private float _scale = 1;
-    private CommandList commandList;
-    private Texture fontTexture;
-
-    // device objects
-    private PipelineState imPipeline;
-    private EffectInstance imShader;
-    private VertexDeclaration imVertLayout;
-    private IndexBufferBinding indexBinding;
-    private VertexBufferBinding vertexBinding;
+    private VertexBufferBinding _vertexBinding;
 
     public ImGuiSystem([NotNull] IServiceRegistry registry, [NotNull] GraphicsDeviceManager graphicsDeviceManager,
         InputManager inputManager = null) : base(registry)
     {
-        input = inputManager ?? Services.GetService<InputManager>();
-        Debug.Assert(input != null, "ImGuiSystem: InputManager must be available!");
+        _input = inputManager ?? Services.GetService<InputManager>();
+        Debug.Assert(_input != null, "ImGuiSystem: InputManager must be available!");
 
-        deviceManager = graphicsDeviceManager;
+        var deviceManager = graphicsDeviceManager;
         Debug.Assert(deviceManager != null, "ImGuiSystem: GraphicsDeviceManager must be available!");
 
-        device = deviceManager.GraphicsDevice;
-        Debug.Assert(device != null, "ImGuiSystem: GraphicsDevice must be available!");
+        _device = deviceManager.GraphicsDevice;
+        Debug.Assert(_device != null, "ImGuiSystem: GraphicsDevice must be available!");
 
-        context = Services.GetService<GraphicsContext>();
-        Debug.Assert(context != null, "ImGuiSystem: GraphicsContext must be available!");
+        _context = Services.GetService<GraphicsContext>();
+        Debug.Assert(_context != null, "ImGuiSystem: GraphicsContext must be available!");
 
-        effectSystem = Services.GetService<EffectSystem>();
-        Debug.Assert(effectSystem != null, "ImGuiSystem: EffectSystem must be available!");
+        _effectSystem = Services.GetService<EffectSystem>();
+        Debug.Assert(_effectSystem != null, "ImGuiSystem: EffectSystem must be available!");
 
         ImGuiContext = ImGui.CreateContext();
         ImGui.SetCurrentContext(ImGuiContext);
@@ -94,12 +91,6 @@ public class ImGuiSystem : GameSystemBase
             _scale = value;
             CreateFontTexture();
         }
-    }
-
-    public override void Draw(GameTime gameTime)
-    {
-        base.Draw(gameTime);
-        ImGuiScene?.Draw(this, gameTime);
     }
 
     protected override void Destroy()
@@ -153,11 +144,11 @@ public class ImGuiSystem : GameSystemBase
     private void CreateDeviceObjects()
     {
         // set up a commandlist
-        commandList = context.CommandList;
+        _commandList = _context.CommandList;
 
         // compile de shader
-        imShader = new EffectInstance(effectSystem.LoadEffect("ImGuiShader").WaitForResult());
-        imShader.UpdateEffect(device);
+        _imShader = new EffectInstance(_effectSystem.LoadEffect("ImGuiShader").WaitForResult());
+        _imShader.UpdateEffect(_device);
 
         var layout = new VertexDeclaration(
             VertexElement.Position<Vector2>(),
@@ -165,7 +156,7 @@ public class ImGuiSystem : GameSystemBase
             VertexElement.Color(PixelFormat.R8G8B8A8_UNorm)
         );
 
-        imVertLayout = layout;
+        _imVertLayout = layout;
 
         // de pipeline desc
         var pipeline = new PipelineStateDescription
@@ -183,18 +174,18 @@ public class ImGuiSystem : GameSystemBase
             },
 
             PrimitiveType = PrimitiveType.TriangleList,
-            InputElements = imVertLayout.CreateInputElements(),
+            InputElements = _imVertLayout.CreateInputElements(),
             DepthStencilState = DepthStencilStates.Default,
 
-            EffectBytecode = imShader.Effect.Bytecode,
-            RootSignature = imShader.RootSignature,
+            EffectBytecode = _imShader.Effect.Bytecode,
+            RootSignature = _imShader.RootSignature,
 
             Output = new RenderOutputDescription(PixelFormat.R8G8B8A8_UNorm)
         };
 
         // finally set up the pipeline
-        var pipelineState = PipelineState.New(device, ref pipeline);
-        imPipeline = pipelineState;
+        var pipelineState = PipelineState.New(_device, ref pipeline);
+        _imPipeline = pipelineState;
 
         CreateBuffers(INITIAL_VERTEX_BUFFER_SIZE, INITIAL_INDEX_BUFFER_SIZE);
     }
@@ -212,10 +203,10 @@ public class ImGuiSystem : GameSystemBase
         int bytesPerPixel;
         _io.Fonts.GetTexDataAsRGBA32(&pixelData, &width, &height, &bytesPerPixel);
 
-        var newFontTexture = Texture.New2D(device, width, height, PixelFormat.R8G8B8A8_UNorm);
-        newFontTexture.SetData(commandList, new DataPointer(pixelData, width * height * bytesPerPixel));
+        var newFontTexture = Texture.New2D(_device, width, height, PixelFormat.R8G8B8A8_UNorm);
+        newFontTexture.SetData(_commandList, new DataPointer(pixelData, width * height * bytesPerPixel));
 
-        fontTexture = newFontTexture;
+        _fontTexture = newFontTexture;
     }
 
     public override void Update(GameTime gameTime)
@@ -224,18 +215,18 @@ public class ImGuiSystem : GameSystemBase
         _io.DisplaySize = new System.Numerics.Vector2(surfaceSize.Width, surfaceSize.Height);
         _io.DeltaTime = (float)gameTime.TimePerFrame.TotalSeconds;
 
-        if (input.HasMouse == false || input.IsMousePositionLocked == false)
+        if (_input.HasMouse == false || _input.IsMousePositionLocked == false)
         {
-            var mousePos = input.AbsoluteMousePosition;
+            var mousePos = _input.AbsoluteMousePosition;
             _io.MousePos = new System.Numerics.Vector2(mousePos.X, mousePos.Y);
 
             if (_io.WantTextInput)
-                input.TextInput.EnabledTextInput();
+                _input.TextInput.EnabledTextInput();
             else
-                input.TextInput.DisableTextInput();
+                _input.TextInput.DisableTextInput();
 
             // handle input events
-            foreach (var ev in input.Events)
+            foreach (var ev in _input.Events)
                 switch (ev)
                 {
                     case TextInputEvent tev:
@@ -244,7 +235,7 @@ public class ImGuiSystem : GameSystemBase
                         break;
                     case KeyEvent kev:
                         if (_keys.TryGetValue(kev.Key, out var imGuiKey))
-                            _io.AddKeyEvent(imGuiKey, input.IsKeyDown(kev.Key));
+                            _io.AddKeyEvent(imGuiKey, _input.IsKeyDown(kev.Key));
                         break;
                     case MouseWheelEvent mw:
                         _io.MouseWheel += mw.WheelDelta;
@@ -252,17 +243,22 @@ public class ImGuiSystem : GameSystemBase
                 }
 
             var mouseDown = _io.MouseDown;
-            mouseDown[0] = input.IsMouseButtonDown(MouseButton.Left);
-            mouseDown[1] = input.IsMouseButtonDown(MouseButton.Right);
-            mouseDown[2] = input.IsMouseButtonDown(MouseButton.Middle);
+            mouseDown[0] = _input.IsMouseButtonDown(MouseButton.Left);
+            mouseDown[1] = _input.IsMouseButtonDown(MouseButton.Right);
+            mouseDown[2] = _input.IsMouseButtonDown(MouseButton.Middle);
 
-            _io.KeyAlt = input.IsKeyDown(Keys.LeftAlt) || input.IsKeyDown(Keys.RightAlt);
-            _io.KeyShift = input.IsKeyDown(Keys.LeftShift) || input.IsKeyDown(Keys.RightShift);
-            _io.KeyCtrl = input.IsKeyDown(Keys.LeftCtrl) || input.IsKeyDown(Keys.RightCtrl);
-            _io.KeySuper = input.IsKeyDown(Keys.LeftWin) || input.IsKeyDown(Keys.RightWin);
+            _io.KeyAlt = _input.IsKeyDown(Keys.LeftAlt) || _input.IsKeyDown(Keys.RightAlt);
+            _io.KeyShift = _input.IsKeyDown(Keys.LeftShift) || _input.IsKeyDown(Keys.RightShift);
+            _io.KeyCtrl = _input.IsKeyDown(Keys.LeftCtrl) || _input.IsKeyDown(Keys.RightCtrl);
+            _io.KeySuper = _input.IsKeyDown(Keys.LeftWin) || _input.IsKeyDown(Keys.RightWin);
         }
+    }
 
+    public override void Draw(GameTime gameTime)
+    {
+        base.Draw(gameTime);
         ImGui.NewFrame();
+        ImGuiScene?.Draw(this, gameTime);
     }
 
     public override void EndDraw()
@@ -273,19 +269,19 @@ public class ImGuiSystem : GameSystemBase
 
     private void CreateBuffers(int vtxCount, int idxCount)
     {
-        var totalVBOSize = (uint)(vtxCount * Unsafe.SizeOf<ImDrawVert>());
-        if (totalVBOSize > (vertexBinding.Buffer?.SizeInBytes ?? 0))
+        var totalVboSize = (uint)(vtxCount * Unsafe.SizeOf<ImDrawVert>());
+        if (totalVboSize > (_vertexBinding.Buffer?.SizeInBytes ?? 0))
         {
-            var vertexBuffer = Buffer.Vertex.New(device, (int)(totalVBOSize * 1.5f));
-            vertexBinding = new VertexBufferBinding(vertexBuffer, imVertLayout, 0);
+            var vertexBuffer = Buffer.Vertex.New(_device, (int)(totalVboSize * 1.5f));
+            _vertexBinding = new VertexBufferBinding(vertexBuffer, _imVertLayout, 0);
         }
 
-        var totalIBOSize = (uint)(idxCount * sizeof(ushort));
-        if (totalIBOSize > (indexBinding?.Buffer?.SizeInBytes ?? 0))
+        var totalIboSize = (uint)(idxCount * sizeof(ushort));
+        if (totalIboSize > (_indexBinding?.Buffer?.SizeInBytes ?? 0))
         {
             var is32Bits = false;
-            var indexBuffer = Buffer.Index.New(device, (int)(totalIBOSize * 1.5f));
-            indexBinding = new IndexBufferBinding(indexBuffer, is32Bits, 0);
+            var indexBuffer = Buffer.Index.New(_device, (int)(totalIboSize * 1.5f));
+            _indexBinding = new IndexBufferBinding(indexBuffer, is32Bits, 0);
         }
     }
 
@@ -298,10 +294,10 @@ public class ImGuiSystem : GameSystemBase
         for (var n = 0; n < drawData.CmdListsCount; n++)
         {
             var cmdList = drawData.CmdLists[n];
-            vertexBinding.Buffer.SetData(commandList,
+            _vertexBinding.Buffer.SetData(_commandList,
                 new DataPointer(cmdList.VtxBuffer.Data, cmdList.VtxBuffer.Size * Unsafe.SizeOf<ImDrawVert>()),
                 vtxOffsetBytes);
-            indexBinding.Buffer.SetData(commandList,
+            _indexBinding.Buffer.SetData(_commandList,
                 new DataPointer(cmdList.IdxBuffer.Data, cmdList.IdxBuffer.Size * sizeof(ushort)), idxOffsetBytes);
             vtxOffsetBytes += cmdList.VtxBuffer.Size * Unsafe.SizeOf<ImDrawVert>();
             idxOffsetBytes += cmdList.IdxBuffer.Size * sizeof(ushort);
@@ -319,10 +315,10 @@ public class ImGuiSystem : GameSystemBase
 
         // set pipeline stuff
         var is32Bits = false;
-        commandList.SetPipelineState(imPipeline);
-        commandList.SetVertexBuffer(0, vertexBinding.Buffer, 0, Unsafe.SizeOf<ImDrawVert>());
-        commandList.SetIndexBuffer(indexBinding.Buffer, 0, is32Bits);
-        imShader.Parameters.Set(ImGuiShaderKeys.tex, fontTexture);
+        _commandList.SetPipelineState(_imPipeline);
+        _commandList.SetVertexBuffer(0, _vertexBinding.Buffer, 0, Unsafe.SizeOf<ImDrawVert>());
+        _commandList.SetIndexBuffer(_indexBinding.Buffer, 0, is32Bits);
+        _imShader.Parameters.Set(ImGuiShaderKeys.tex, _fontTexture);
 
         var vtxOffset = 0;
         var idxOffset = 0;
@@ -340,7 +336,7 @@ public class ImGuiSystem : GameSystemBase
                 }
                 else
                 {
-                    commandList.SetScissorRectangle(
+                    _commandList.SetScissorRectangle(
                         new Rectangle(
                             (int)cmd.ClipRect.X,
                             (int)cmd.ClipRect.Y,
@@ -349,11 +345,11 @@ public class ImGuiSystem : GameSystemBase
                         )
                     );
 
-                    imShader.Parameters.Set(ImGuiShaderKeys.tex, fontTexture);
-                    imShader.Parameters.Set(ImGuiShaderKeys.proj, ref projMatrix);
-                    imShader.Apply(context);
+                    _imShader.Parameters.Set(ImGuiShaderKeys.tex, _fontTexture);
+                    _imShader.Parameters.Set(ImGuiShaderKeys.proj, ref projMatrix);
+                    _imShader.Apply(_context);
 
-                    commandList.DrawIndexed((int)cmd.ElemCount, idxOffset, vtxOffset);
+                    _commandList.DrawIndexed((int)cmd.ElemCount, idxOffset, vtxOffset);
                 }
 
                 idxOffset += (int)cmd.ElemCount;

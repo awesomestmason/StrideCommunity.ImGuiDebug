@@ -89,7 +89,7 @@ public class Inspector : ImGuiComponentBase
         if (available != null)
             return available;
         var inspector = new Inspector();
-        var window = new ImGuiWindow(inspector);
+        var window = new ImGuiWindow("Inspector", inspector);
         scene.Add(window);
         return inspector;
     }
