@@ -64,7 +64,8 @@ public class ImGuiSystem : GameSystemBase
 
         ImGuiContext = ImGui.CreateContext();
         ImGui.SetCurrentContext(ImGuiContext);
-
+        var theme = new DarkTheme();
+        theme.ApplyTheme(ImGui.GetStyle());
         _io = ImGui.GetIO();
 
         // SETTO
