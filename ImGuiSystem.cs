@@ -266,6 +266,7 @@ public class ImGuiSystem : GameSystemBase
     {
         ImGui.Render();
         RenderDrawLists(ImGui.GetDrawData());
+        ImGuiExtension.ClearTextures();
     }
 
     private void CreateBuffers(int vtxCount, int idxCount)
@@ -331,29 +332,40 @@ public class ImGuiSystem : GameSystemBase
             {
                 var cmd = cmdList.CmdBuffer[i];
 
+                // Bind the appropriate texture based on cmd.TextureId
                 if (cmd.TextureId != IntPtr.Zero)
                 {
-                    // imShader.Parameters.Set(ImGuiShaderKeys.tex, fontTexture);
+                    // Convert the IntPtr to the correct texture resource
+                    if (ImGuiExtension.TryGetTexture(cmd.TextureId.Handle, out var texture))
+                    {
+                        _imShader.Parameters.Set(ImGuiShaderKeys.tex, texture);
+                    }
                 }
                 else
                 {
-                    _commandList.SetScissorRectangle(
-                        new Rectangle(
-                            (int)cmd.ClipRect.X,
-                            (int)cmd.ClipRect.Y,
-                            (int)(cmd.ClipRect.Z - cmd.ClipRect.X),
-                            (int)(cmd.ClipRect.W - cmd.ClipRect.Y)
-                        )
-                    );
-
-                    _imShader.Parameters.Set(ImGuiShaderKeys.tex, _fontTexture);
-                    _imShader.Parameters.Set(ImGuiShaderKeys.proj, ref projMatrix);
-                    _imShader.Apply(_context);
-
-                    _commandList.DrawIndexed((int)cmd.ElemCount, idxOffset, vtxOffset);
+                    // If no specific texture, use the default font texture
+                    _imShader.Parameters.Set(ImGuiShaderKeys.tex, fontTexture);
                 }
 
+                // Set the scissor rectangle for clipping
+                _commandList.SetScissorRectangle(
+                    new Rectangle(
+                        (int)cmd.ClipRect.X,
+                        (int)cmd.ClipRect.Y,
+                        (int)(cmd.ClipRect.Z - cmd.ClipRect.X),
+                        (int)(cmd.ClipRect.W - cmd.ClipRect.Y)
+                    )
+                );
+
+                // Set the projection matrix and apply shader
+                _imShader.Parameters.Set(ImGuiShaderKeys.proj, ref projMatrix);
+                _imShader.Apply(context);
+
+                // Draw the indexed vertices
+                _commandList.DrawIndexed((int)cmd.ElemCount, idxOffset, vtxOffset);
+
                 idxOffset += (int)cmd.ElemCount;
+            
             }
 
             vtxOffset += cmdList.VtxBuffer.Size;
